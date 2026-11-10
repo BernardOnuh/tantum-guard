@@ -13,7 +13,7 @@ body {
 
 @layer components {
   .input {
-    @apply w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm outline-none focus:border-emerald-500/60;
+    @apply w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-base outline-none focus:border-emerald-500/60 sm:text-sm;
   }
   .btn-primary {
     @apply rounded-xl bg-emerald-500 px-5 py-2.5 font-medium text-black transition hover:bg-emerald-400 disabled:opacity-40;
@@ -23,3 +23,5 @@ body {
   }
 }
 select.input option { background: #111; }
+
+html { -webkit-tap-highlight-color: transparent; background: #07080b; }

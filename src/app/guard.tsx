@@ -184,7 +184,7 @@ function CheckPanel({
               autoFocus
               placeholder="Paste a Sui address (0x…)"
               spellCheck={false}
-              className="min-w-0 flex-1 bg-transparent font-mono text-sm outline-none placeholder:text-zinc-600"
+              className="min-w-0 flex-1 bg-transparent font-mono text-base outline-none placeholder:text-zinc-600 sm:text-sm"
             />
             {addr && (
               <button onClick={() => setAddr("")} className="text-zinc-500 hover:text-white" aria-label="Clear">

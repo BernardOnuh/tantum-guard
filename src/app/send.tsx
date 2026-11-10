@@ -42,7 +42,12 @@ export default function Send({ initialTo = "" }: { initialTo?: string }) {
 
   // Default token: SUI from the wallet.
   useEffect(() => {
-    if (token || !tokens?.length) return;
+    if (token) return;
+    if (!tokens?.length) {
+      const sui = byType.get(SUI_TYPE);
+      if (sui) setToken({ type: sui.type, symbol: sui.symbol, decimals: sui.decimals, iconUrl: sui.iconUrl, price: sui.price });
+      return;
+    }
     const t = tokens.find((x) => x.type === SUI_TYPE) ?? tokens[0];
     const l = byType.get(t.type);
     setToken({ type: t.type, symbol: t.symbol, decimals: t.decimals, iconUrl: l?.iconUrl ?? null, price: l?.price ?? null });
