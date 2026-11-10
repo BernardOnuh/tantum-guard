@@ -39,34 +39,35 @@ function Trailer() {
   if (hidden)
     return (
       <button onClick={() => toggle(false)} className="mb-6 flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-zinc-300 hover:bg-white/10">
-        ▶ Watch the 30-second demo
+        ▶ Watch the 48-second film
       </button>
     );
   return (
     <section className="mb-6 grid items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-3 sm:mb-8 sm:gap-6 sm:p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
       <video
-        src="/trailer.mp4"
-        poster="/trailer-poster.jpg"
+        src="/film.mp4"
+        poster="/film-poster.jpg"
         controls
         playsInline
         preload="metadata"
         className="aspect-video w-full rounded-2xl bg-black ring-1 ring-white/10"
       />
       <div className="flex items-center justify-between gap-3 px-1 sm:hidden">
-        <p className="text-xs text-zinc-400">Remembers who you trust · checks every send &amp; swap · simulates before you sign</p>
+        <p className="text-xs text-zinc-400">Billions are lost to scams and wrong sends. Tantum Guard stops them before you sign.</p>
         <button onClick={() => toggle(true)} className="shrink-0 text-xs text-zinc-500">
           Hide
         </button>
       </div>
       <div className="hidden space-y-4 sm:block">
         <div className="flex items-start justify-between gap-3">
-          <h2 className="text-xl font-semibold">How Tantum Guard protects you</h2>
+          <h2 className="text-xl font-semibold">No reason to shed tears</h2>
           <button onClick={() => toggle(true)} className="shrink-0 text-xs text-zinc-500 hover:text-zinc-300">
             Hide
           </button>
         </div>
         <ol className="space-y-3 text-sm">
           {[
+            ["!", "The problem", "Crypto scams took at least $14B in 2025 (Chainalysis). Researchers found 270M address-poisoning attacks (USENIX Security 2025)."],
             ["1", "Paste or pick a recipient", "It's scanned instantly. Tatum reads its real wallet activity on Sui Mainnet."],
             ["2", "Your memory weighs in", "Addresses and tokens you trusted or blocked live in Walrus Memory, so lookalikes get stopped."],
             ["3", "Simulate, then sign", "Every send and swap is simulated through Tatum so you see exactly what moves before your wallet signs."],
