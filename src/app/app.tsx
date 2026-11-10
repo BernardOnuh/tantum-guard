@@ -7,11 +7,13 @@ import { dAppKit } from "./dapp-kit";
 import Guard from "./guard";
 import Send from "./send";
 import Swap from "./swap";
+import Recurring from "./recurring";
 
 const TABS = [
   { id: "send", label: "Send", short: "Send", icon: "M5 19 19 5M9 5h10v10" },
   { id: "swap", label: "Swap", short: "Swap", icon: "M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" },
   { id: "check", label: "Check address", short: "Check", icon: "M12 3 4 6v6c0 4.4 3.4 8.2 8 9 4.6-.8 8-4.6 8-9V6l-8-3Zm-3 9 2 2 4-4" },
+  { id: "recurring", label: "Recurring", short: "Recurring", icon: "M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5M12 7v5l3 2" },
 ] as const;
 
 function TabIcon({ d }: { d: string }) {
@@ -154,7 +156,7 @@ export default function App() {
 
         {/* Mobile: thumb-reach bottom tab bar */}
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0a0c10]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-lg sm:hidden">
-          <div className="mx-auto grid max-w-md grid-cols-3">
+          <div className="mx-auto grid max-w-md grid-cols-4">
             {TABS.map((t) => (
               <button
                 key={t.id}
@@ -177,6 +179,8 @@ export default function App() {
               <Send key={`send-${prefill.n}`} initialTo={prefill.to} />
             ) : tab === "swap" ? (
               <Swap key={`swap-${prefill.n}`} initialTo={prefill.to} />
+            ) : tab === "recurring" ? (
+              <Recurring />
             ) : undefined
           }
           onAction={(action, address) => {

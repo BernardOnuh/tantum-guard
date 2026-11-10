@@ -97,7 +97,18 @@ export default function Send({ initialTo = "" }: { initialTo?: string }) {
         if (t && !t.status.success) simError = String(t.status.error?.message ?? "Simulation failed");
         gasMocked = Boolean(sim.gasPaymentMocked);
       }
-      setReview({ to: dest, amountRaw: raw, token, check, changes, simError, gasMocked, tx });
+      // Enforce a recurring-payment cap remembered in Walrus.
+      const capRule = (check.memory?.rules ?? []).find(
+        (r: { action: string; coinType: string; capRaw?: string }) => r.action === "cap" && r.coinType === token.type && r.capRaw && raw > BigInt(r.capRaw),
+      );
+      const guarded = capRule
+        ? {
+            ...check,
+            level: check.level === "critical" ? "critical" : "high",
+            signals: [{ level: "high", source: "memory", text: `This is more than the ${capRule.cap} ${capRule.symbol} cap you set for payments to this address.` }, ...check.signals],
+          }
+        : check;
+      setReview({ to: dest, amountRaw: raw, token, check: guarded, changes, simError, gasMocked, tx });
     } catch (e) {
       setError((e as Error).message);
     } finally {

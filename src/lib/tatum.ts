@@ -185,10 +185,10 @@ export async function getTokenProfile(coinType: string): Promise<TokenProfile> {
 
 // ---------- Wallet activity (EOA history) ----------
 
-const ACTIVITY_QUERY = `
+const ACTIVITY_QUERY_FOR = (rel: "AFFECTED" | "SENT") => `
 query Activity($a: SuiAddress!, $floor: UInt53!, $n: Int!) {
   address(address: $a) {
-    transactions(last: $n, relation: AFFECTED, filter: { afterCheckpoint: $floor }) {
+    transactions(last: $n, relation: ${rel}, filter: { afterCheckpoint: $floor }) {
       nodes {
         digest
         sender { address }
@@ -230,7 +230,8 @@ type ActivityData = {
   };
 };
 
-export async function getActivity(address: string, n = 8): Promise<ActivityItem[]> {
+export async function getActivity(address: string, n = 8, rel: "AFFECTED" | "SENT" = "AFFECTED"): Promise<ActivityItem[]> {
+  const ACTIVITY_QUERY = ACTIVITY_QUERY_FOR(rel);
   let data: ActivityData;
   try {
     data = await gql<ActivityData>(ACTIVITY_QUERY, { a: address, floor: historyFloor, n });

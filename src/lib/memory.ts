@@ -48,6 +48,37 @@ export type SendMemory = {
 // with a machine-parsable JSON tail.
 const TAG = "TANTUM_GUARD_VERDICT";
 const SEND_TAG = "TANTUM_GUARD_SEND";
+const RULE_TAG = "TANTUM_GUARD_RECURRING";
+
+export type RuleAction = "keep" | "cancel" | "cap";
+export type RecurringRule = {
+  to: string;
+  coinType: string;
+  symbol: string;
+  action: RuleAction;
+  capRaw?: string; // max per payment (raw units) when action = cap
+  cap?: string; // human-readable cap
+  label?: string;
+  at: string;
+  blobId: string;
+};
+
+/** A keep / cancel / cap decision for a recurring payment, enforced on later sends. */
+export async function rememberRule(input: Omit<RecurringRule, "at" | "blobId">) {
+  const at = new Date().toISOString();
+  const to = input.to.toLowerCase();
+  const coinType = normalizeStructTag(input.coinType);
+  const who = `Sui address ${to}${input.label ? ` ("${input.label}")` : ""}`;
+  const human =
+    input.action === "cancel"
+      ? `The user CANCELLED the recurring ${input.symbol} payment to ${who} and wants any further payment to it stopped.`
+      : input.action === "cap"
+        ? `The user CAPPED the recurring ${input.symbol} payment to ${who} at ${input.cap} ${input.symbol} per payment.`
+        : `The user wants to KEEP the recurring ${input.symbol} payment to ${who}.`;
+  const text = `${human}\n${RULE_TAG} ${JSON.stringify({ ...input, to, coinType, at })}`;
+  const res = await memwal().rememberAndWait(text, NAMESPACE);
+  return { blobId: res.blob_id, at };
+}
 
 export const normSubject = (kind: SubjectKind, s: string) =>
   kind === "address" ? s.toLowerCase() : normalizeStructTag(s.trim());
@@ -99,7 +130,7 @@ function parseTail<T>(text: string, tag: string, blobId: string): (T & { blobId:
 }
 
 /** Everything the guard remembers. Verdicts de-duplicated so the latest per subject wins. */
-export async function recallAll(query = "Sui addresses and tokens the user trusted or blocked, and past sends") {
+export async function recallAll(query = "Sui addresses and tokens the user trusted or blocked, recurring payments kept, cancelled or capped, and past sends") {
   const res = await memwal().recall({ query, limit: 100, namespace: NAMESPACE });
   const verdicts = res.results
     .map((r) => parseTail<Omit<VerdictMemory, "blobId">>(r.text, TAG, r.blob_id))
@@ -111,12 +142,20 @@ export async function recallAll(query = "Sui addresses and tokens the user trust
     .filter((v): v is SendMemory => v !== null)
     .sort((a, b) => b.at.localeCompare(a.at));
 
+  const rulesAll = res.results
+    .map((r) => parseTail<Omit<RecurringRule, "blobId">>(r.text, RULE_TAG, r.blob_id))
+    .filter((v): v is RecurringRule => v !== null)
+    .sort((a, b) => b.at.localeCompare(a.at));
+  const ruleMap = new Map<string, RecurringRule>();
+  for (const r of rulesAll) if (!ruleMap.has(`${r.to}|${r.coinType}`)) ruleMap.set(`${r.to}|${r.coinType}`, r);
+  const rules = [...ruleMap.values()];
+
   const latest = new Map<string, VerdictMemory>();
   for (const v of verdicts) {
     const k = `${v.kind}:${v.address}`;
     if (!latest.has(k)) latest.set(k, v);
   }
-  return { latest: [...latest.values()], history: verdicts, sends };
+  return { latest: [...latest.values()], history: verdicts, sends, rules };
 }
 
 // Back-compat for earlier callers.

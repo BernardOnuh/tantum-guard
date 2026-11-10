@@ -1,5 +1,5 @@
 import type { AddressProfile } from "./tatum";
-import type { VerdictMemory } from "./memory";
+import type { RecurringRule, VerdictMemory } from "./memory";
 
 export type Level = "safe" | "low" | "medium" | "high" | "critical";
 export type Signal = { level: Level; text: string; source: "memory" | "chain" };
@@ -18,7 +18,7 @@ export function findLookalike(address: string, trusted: VerdictMemory[]) {
 export function assess(
   address: string,
   profile: AddressProfile | null,
-  memory: { own?: VerdictMemory; lookalike?: VerdictMemory; sendCount?: number },
+  memory: { own?: VerdictMemory; lookalike?: VerdictMemory; sendCount?: number; rules?: RecurringRule[] },
 ): { level: Level; signals: Signal[] } {
   const signals: Signal[] = [];
 
@@ -30,6 +30,14 @@ export function assess(
       source: "memory",
       text: `Looks like your trusted address${memory.lookalike.label ? ` "${memory.lookalike.label}"` : ""} (${short(memory.lookalike.address)}) but is NOT the same. This is an address-poisoning pattern.`,
     });
+
+  for (const r of memory.rules ?? []) {
+    if (r.action === "cancel")
+      signals.push({ level: "critical", source: "memory", text: `You cancelled your recurring ${r.symbol} payment to this address on ${r.at.slice(0, 10)}. Don't pay it again.` });
+    else if (r.action === "cap")
+      signals.push({ level: "medium", source: "memory", text: `You capped recurring ${r.symbol} payments here at ${r.cap} ${r.symbol} each.` });
+    else signals.push({ level: "low", source: "memory", text: `A recurring ${r.symbol} payment you chose to keep.` });
+  }
 
   if (profile) {
     if (profile.isPackageOrObject)
