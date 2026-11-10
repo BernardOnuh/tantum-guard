@@ -11,12 +11,17 @@ let historyFloor = Number(process.env.TATUM_SUI_HISTORY_FLOOR ?? 237_700_000);
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const key = process.env.TATUM_API_KEY;
   if (!key) throw new Error("TATUM_API_KEY is not set");
-  const res = await fetch(TATUM_SUI_GRAPHQL, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": key },
-    body: JSON.stringify({ query, variables }),
-    cache: "no-store",
-  });
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(TATUM_SUI_GRAPHQL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key },
+      body: JSON.stringify({ query, variables }),
+      cache: "no-store",
+    });
+    if (res.status !== 429 || attempt >= 4) break;
+    await new Promise((r) => setTimeout(r, 400 * (attempt + 1) + Math.random() * 300));
+  }
   if (!res.ok) throw new Error(`Tatum GraphQL failed: HTTP ${res.status}`);
   const json = (await res.json()) as { data?: T; errors?: { message: string; extensions?: { chain?: string[] } }[] };
   if (json.errors?.length) {
@@ -121,5 +126,59 @@ export async function getAddressProfile(address: string): Promise<AddressProfile
     coinTypes: d.balances.nodes.length,
     isPackageOrObject: Boolean(d.asObject),
     suinsName: d.defaultNameRecord?.domain ?? null,
+  };
+}
+
+// ---------- Tokens ----------
+
+const TOKEN_QUERY = `
+query Token($t: String!) {
+  coinMetadata(coinType: $t) {
+    name symbol decimals iconUrl description supply
+  }
+}`;
+
+const PKG_QUERY = `
+query Pkg($p: SuiAddress!) {
+  package(address: $p) { previousTransaction { effects { timestamp } } }
+}`;
+
+export type TokenProfile = {
+  coinType: string;
+  found: boolean;
+  name: string | null;
+  symbol: string | null;
+  decimals: number | null;
+  iconUrl: string | null;
+  supply: string | null;
+  publishedMs: number | null;
+};
+
+export function isCoinType(t: string) {
+  return /^0x[0-9a-fA-F]{1,64}::[A-Za-z_][A-Za-z0-9_]*::[A-Za-z_][A-Za-z0-9_]*$/.test(t.trim());
+}
+
+export async function getTokenProfile(coinType: string): Promise<TokenProfile> {
+  const t = coinType.trim();
+  const [meta, pkg] = await Promise.all([
+    gql<{ coinMetadata: null | { name: string; symbol: string; decimals: number; iconUrl: string | null; supply: string | null } }>(
+      TOKEN_QUERY,
+      { t },
+    ),
+    gql<{ package: null | { previousTransaction: null | { effects: null | { timestamp: string | null } } } }>(PKG_QUERY, {
+      p: t.split("::")[0],
+    }).catch(() => ({ package: null })),
+  ]);
+  const m = meta.coinMetadata;
+  const ts = Date.parse(pkg.package?.previousTransaction?.effects?.timestamp ?? "");
+  return {
+    coinType: t,
+    found: Boolean(m),
+    name: m?.name ?? null,
+    symbol: m?.symbol ?? null,
+    decimals: m?.decimals ?? null,
+    iconUrl: m?.iconUrl ?? null,
+    supply: m?.supply ?? null,
+    publishedMs: Number.isFinite(ts) ? ts : null,
   };
 }

@@ -1,0 +1,51 @@
+"use client";
+
+import { useState } from "react";
+import { DAppKitProvider } from "@mysten/dapp-kit-react";
+import { ConnectButton } from "@mysten/dapp-kit-react/ui";
+import { dAppKit } from "./dapp-kit";
+import Guard from "./guard";
+import Send from "./send";
+import Swap from "./swap";
+
+const TABS = [
+  { id: "send", label: "Send" },
+  { id: "swap", label: "Swap" },
+  { id: "check", label: "Check address" },
+] as const;
+
+export default function App() {
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("send");
+  return (
+    <DAppKitProvider dAppKit={dAppKit}>
+      <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:py-12">
+        <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-emerald-400">Tatum × Walrus Memory · Sui Mainnet</p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">Tantum Guard</h1>
+            <p className="mt-3 max-w-2xl text-zinc-400">
+              A Sui wallet companion that remembers. Every send and swap is checked against what you&apos;ve trusted and
+              blocked before (kept in <span className="text-violet-300">Walrus Memory</span>) and simulated on Mainnet
+              through <span className="text-zinc-200">Tatum</span> before you sign.
+            </p>
+          </div>
+          <ConnectButton />
+        </header>
+
+        <nav className="mb-6 inline-flex rounded-xl border border-white/10 bg-white/[0.03] p-1">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`rounded-lg px-4 py-2 text-sm transition ${tab === t.id ? "bg-emerald-500 text-black" : "text-zinc-300 hover:text-white"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+
+        <Guard panel={tab === "send" ? <Send /> : tab === "swap" ? <Swap /> : undefined} />
+      </div>
+    </DAppKitProvider>
+  );
+}

@@ -1,5 +1,5 @@
-import Guard from "./guard";
+import ClientApp from "./client-app";
 
 export default function Home() {
-  return <Guard />;
+  return <ClientApp />;
 }

@@ -18,7 +18,7 @@ export function findLookalike(address: string, trusted: VerdictMemory[]) {
 export function assess(
   address: string,
   profile: AddressProfile | null,
-  memory: { own?: VerdictMemory; lookalike?: VerdictMemory },
+  memory: { own?: VerdictMemory; lookalike?: VerdictMemory; sendCount?: number },
 ): { level: Level; signals: Signal[] } {
   const signals: Signal[] = [];
 
@@ -45,6 +45,9 @@ export function assess(
     if (profile.sentMore || profile.receivedMore)
       signals.push({ level: "low", source: "chain", text: "This is an established address with 50+ transactions." });
   }
+
+  if (memory.sendCount && !memory.lookalike && memory.own?.verdict !== "block")
+    signals.unshift({ level: "low", source: "memory", text: `You've successfully sent to this address ${memory.sendCount} time(s) before.` });
 
   if (memory.own?.verdict === "trust" && !memory.lookalike)
     signals.unshift({ level: "safe", source: "memory", text: `You trusted this address on ${memory.own.at.slice(0, 10)}${memory.own.label ? ` as "${memory.own.label}"` : ""}.` });

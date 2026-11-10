@@ -1,9 +1,12 @@
 import "server-only";
 import { MemWal } from "@mysten-incubation/memwal";
+import { normalizeStructTag } from "@mysten/sui/utils";
 
-// Walrus Memory (Mainnet). Every verdict the user makes is written here, so the
+// Walrus Memory (Mainnet). Every verdict and every completed send is written here, so the
 // guard remembers them across sessions, devices and any other app on this account.
 let client: MemWal | null = null;
+
+export const NAMESPACE = process.env.MEMWAL_NAMESPACE ?? "tantum-guard";
 
 function memwal() {
   if (client) return client;
@@ -19,12 +22,12 @@ function memwal() {
   return client;
 }
 
-export const NAMESPACE = process.env.MEMWAL_NAMESPACE ?? "tantum-guard";
-
 export type Verdict = "trust" | "block";
+export type SubjectKind = "address" | "token";
 
 export type VerdictMemory = {
-  address: string;
+  kind: SubjectKind;
+  address: string; // the subject: a Sui address, or a coin type for tokens
   verdict: Verdict;
   reason: string;
   label?: string;
@@ -32,54 +35,89 @@ export type VerdictMemory = {
   blobId: string;
 };
 
-// Memories are stored as readable text (so semantic recall works and other agents
-// can understand them) with a machine-parsable JSON tail.
+export type SendMemory = {
+  to: string;
+  amount: string;
+  symbol: string;
+  digest: string;
+  at: string;
+  blobId: string;
+};
+
+// Memories are readable text (so semantic recall works and other agents can use them)
+// with a machine-parsable JSON tail.
 const TAG = "TANTUM_GUARD_VERDICT";
+const SEND_TAG = "TANTUM_GUARD_SEND";
+
+export const normSubject = (kind: SubjectKind, s: string) =>
+  kind === "address" ? s.toLowerCase() : normalizeStructTag(s.trim());
 
 export async function rememberVerdict(input: {
+  kind?: SubjectKind;
   address: string;
   verdict: Verdict;
   reason: string;
   label?: string;
   signals?: string[];
 }) {
+  const kind = input.kind ?? "address";
+  const subject = normSubject(kind, input.address);
   const at = new Date().toISOString();
+  const what = kind === "address" ? `Sui address ${subject}` : `the token ${subject}`;
+  const name = input.label ? ` ("${input.label}")` : "";
   const human =
     input.verdict === "block"
-      ? `The user BLOCKED Sui address ${input.address}${input.label ? ` ("${input.label}")` : ""} and never wants to send funds to it.`
-      : `The user TRUSTS Sui address ${input.address}${input.label ? ` ("${input.label}")` : ""} as a known, safe recipient.`;
+      ? `The user BLOCKED ${what}${name} and never wants to ${kind === "address" ? "send funds to it" : "buy or hold it"}.`
+      : `The user TRUSTS ${what}${name} as ${kind === "address" ? "a known, safe recipient" : "a legitimate token"}.`;
   const text =
     `${human} Reason: ${input.reason || "none given"}.` +
     (input.signals?.length ? ` Risk signals at the time: ${input.signals.join("; ")}.` : "") +
-    `\n${TAG} ${JSON.stringify({ address: input.address.toLowerCase(), verdict: input.verdict, reason: input.reason, label: input.label, at })}`;
+    `\n${TAG} ${JSON.stringify({ kind, address: subject, verdict: input.verdict, reason: input.reason, label: input.label, at })}`;
 
   const res = await memwal().rememberAndWait(text, NAMESPACE);
   return { blobId: res.blob_id, id: res.id, at };
 }
 
-function parse(text: string, blobId: string): VerdictMemory | null {
-  const i = text.indexOf(TAG);
+export async function rememberSend(input: { to: string; amount: string; symbol: string; digest: string }) {
+  const at = new Date().toISOString();
+  const to = input.to.toLowerCase();
+  const text =
+    `The user sent ${input.amount} ${input.symbol} to Sui address ${to} (transaction ${input.digest}). The send succeeded.` +
+    `\n${SEND_TAG} ${JSON.stringify({ ...input, to, at })}`;
+  const res = await memwal().rememberAndWait(text, NAMESPACE);
+  return { blobId: res.blob_id, at };
+}
+
+function parseTail<T>(text: string, tag: string, blobId: string): (T & { blobId: string }) | null {
+  const i = text.indexOf(tag + " ");
   if (i === -1) return null;
   try {
-    const j = JSON.parse(text.slice(i + TAG.length).trim());
-    return { ...j, blobId };
+    return { ...JSON.parse(text.slice(i + tag.length).trim()), blobId };
   } catch {
     return null;
   }
 }
 
-/** All verdicts, newest first, de-duplicated so the latest verdict per address wins. */
-export async function recallVerdicts(query = "Sui addresses the user trusted or blocked") {
+/** Everything the guard remembers. Verdicts de-duplicated so the latest per subject wins. */
+export async function recallAll(query = "Sui addresses and tokens the user trusted or blocked, and past sends") {
   const res = await memwal().recall({ query, limit: 100, namespace: NAMESPACE });
-  const all = res.results
-    .map((r) => parse(r.text, r.blob_id))
+  const verdicts = res.results
+    .map((r) => parseTail<Omit<VerdictMemory, "blobId">>(r.text, TAG, r.blob_id))
     .filter((v): v is VerdictMemory => v !== null)
+    .map((v) => ({ ...v, kind: v.kind ?? "address" }))
     .sort((a, b) => b.at.localeCompare(a.at));
+  const sends = res.results
+    .map((r) => parseTail<Omit<SendMemory, "blobId">>(r.text, SEND_TAG, r.blob_id))
+    .filter((v): v is SendMemory => v !== null)
+    .sort((a, b) => b.at.localeCompare(a.at));
+
   const latest = new Map<string, VerdictMemory>();
-  for (const v of all) if (!latest.has(v.address)) latest.set(v.address, v);
-  return { latest: [...latest.values()], history: all };
+  for (const v of verdicts) {
+    const k = `${v.kind}:${v.address}`;
+    if (!latest.has(k)) latest.set(k, v);
+  }
+  return { latest: [...latest.values()], history: verdicts, sends };
 }
 
-export async function memoryHealth() {
-  return memwal().health();
-}
+// Back-compat for earlier callers.
+export const recallVerdicts = recallAll;

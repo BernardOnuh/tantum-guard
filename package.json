@@ -10,8 +10,12 @@
   },
   "dependencies": {
     "@mysten-incubation/memwal": "^0.1.14",
+    "@mysten/dapp-kit-core": "^1.6.43",
+    "@mysten/dapp-kit-react": "^2.1.45",
     "@mysten/seal": "^1.5.4",
     "@mysten/sui": "^2.39.1",
+    "@tanstack/react-query": "^5.107.1",
+    "aftermath-ts-sdk": "^6.4.0",
     "next": "16.4.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",

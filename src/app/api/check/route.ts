@@ -1,5 +1,5 @@
 import { getAddressProfile, isSuiAddress } from "@/lib/tatum";
-import { recallVerdicts } from "@/lib/memory";
+import { recallAll } from "@/lib/memory";
 import { assess, findLookalike } from "@/lib/risk";
 
 export async function POST(req: Request) {
@@ -10,21 +10,23 @@ export async function POST(req: Request) {
 
   const [profileRes, memRes] = await Promise.allSettled([
     getAddressProfile(address),
-    recallVerdicts(`Has the user trusted or blocked Sui address ${address}?`),
+    recallAll(`Has the user trusted, blocked or sent funds to Sui address ${address}?`),
   ]);
 
   const profile = profileRes.status === "fulfilled" ? profileRes.value : null;
-  const mem = memRes.status === "fulfilled" ? memRes.value : { latest: [], history: [] };
-  const own = mem.latest.find((v) => v.address === address);
-  const lookalike = findLookalike(address, mem.latest.filter((v) => v.verdict === "trust"));
-  const { level, signals } = assess(address, profile, { own, lookalike });
+  const mem = memRes.status === "fulfilled" ? memRes.value : { latest: [], history: [], sends: [] };
+  const addrVerdicts = mem.latest.filter((v) => v.kind === "address");
+  const pastSends = mem.sends.filter((s) => s.to === address);
+  const own = addrVerdicts.find((v) => v.address === address);
+  const lookalike = findLookalike(address, addrVerdicts.filter((v) => v.verdict === "trust"));
+  const { level, signals } = assess(address, profile, { own, lookalike, sendCount: pastSends.length });
 
   return Response.json({
     address,
     level,
     signals,
     profile,
-    memory: { own: own ?? null, lookalike: lookalike ?? null },
+    memory: { own: own ?? null, lookalike: lookalike ?? null, sends: pastSends.slice(0, 5) },
     errors: {
       chain: profileRes.status === "rejected" ? String(profileRes.reason?.message ?? profileRes.reason) : null,
       memory: memRes.status === "rejected" ? String(memRes.reason?.message ?? memRes.reason) : null,

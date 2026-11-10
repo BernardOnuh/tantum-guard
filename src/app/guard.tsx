@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 type Level = "safe" | "low" | "medium" | "high" | "critical";
 type Signal = { level: Level; text: string; source: "memory" | "chain" };
-type VerdictMemory = { address: string; verdict: "trust" | "block"; reason: string; label?: string; at: string; blobId: string };
+type VerdictMemory = { kind?: "address" | "token"; address: string; verdict: "trust" | "block"; reason: string; label?: string; at: string; blobId: string };
 type CheckResult = {
   address: string;
   level: Level;
@@ -36,7 +36,7 @@ const fmtDate = (ms: number | null) => (ms ? new Date(ms).toLocaleDateString() :
 const walruscan = (id: string) => `https://walruscan.com/mainnet/blob/${id}`;
 const suiscan = (a: string) => `https://suiscan.xyz/mainnet/account/${a}`;
 
-export default function Guard() {
+export default function Guard({ panel }: { panel?: React.ReactNode }) {
   const [address, setAddress] = useState("");
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
@@ -57,6 +57,9 @@ export default function Guard() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial recall from Walrus
     loadMemory();
+    const onUpdate = () => loadMemory();
+    window.addEventListener("memory-updated", onUpdate);
+    return () => window.removeEventListener("memory-updated", onUpdate);
   }, [loadMemory]);
 
   async function check(addr = address) {
@@ -100,6 +103,7 @@ export default function Guard() {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
       setSaved({ blobId: j.blobId, verdict });
+      window.dispatchEvent(new Event("memory-updated"));
       setReason("");
       await loadMemory();
     } catch (e) {
@@ -112,19 +116,10 @@ export default function Guard() {
   const lv = result ? LEVEL[result.level] : null;
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:py-14">
-      <header className="mb-10">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-emerald-400">Tatum × Walrus Memory · Sui Mainnet</p>
-        <h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">Tantum Guard</h1>
-        <p className="mt-3 max-w-2xl text-zinc-400">
-          A check you run before every send. It reads the recipient’s onchain history through Tatum and checks it against
-          everything you’ve ever trusted or blocked, which it keeps in Walrus Memory. Memory catches the lookalike
-          address that a block explorer won’t.
-        </p>
-      </header>
-
+    <div>
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <section className="space-y-6">
+          {panel ?? (<>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -239,6 +234,7 @@ export default function Guard() {
               </div>
             </div>
           )}
+          </>)}
         </section>
 
         <aside className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:self-start">
@@ -257,13 +253,17 @@ export default function Guard() {
               <li key={m.address}>
                 <button
                   onClick={() => {
+                    if (m.kind === "token") return;
                     setAddress(m.address);
                     check(m.address);
                   }}
                   className="w-full rounded-xl border border-white/5 bg-black/30 p-3 text-left hover:border-white/20"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm">{m.label || short(m.address)}</span>
+                    <span className="truncate text-sm">
+                      {m.kind === "token" && <span className="mr-1.5 rounded bg-white/10 px-1 py-0.5 text-[10px] uppercase text-zinc-400">token</span>}
+                      {m.label || (m.kind === "token" ? m.address.split("::").pop() : short(m.address))}
+                    </span>
                     <span className={`text-xs ${m.verdict === "trust" ? "text-emerald-400" : "text-rose-400"}`}>
                       {m.verdict === "trust" ? "trusted" : "blocked"}
                     </span>
