@@ -40,6 +40,8 @@ export function assess(
       signals.push({ level: "medium", source: "chain", text: "This address has received funds but never sent a transaction." });
     if (profile.firstSeenMs && Date.now() - profile.firstSeenMs < 7 * DAY)
       signals.push({ level: "medium", source: "chain", text: `First seen ${Math.max(1, Math.round((Date.now() - profile.firstSeenMs) / DAY))} day(s) ago.` });
+    if (profile.suinsName)
+      signals.push({ level: "low", source: "chain", text: `Has a SuiNS name: ${profile.suinsName}` });
     if (profile.sentMore || profile.receivedMore)
       signals.push({ level: "low", source: "chain", text: "This is an established address with 50+ transactions." });
   }
