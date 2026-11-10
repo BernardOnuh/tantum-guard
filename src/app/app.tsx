@@ -15,14 +15,26 @@ const TABS = [
 ] as const;
 
 export default function App() {
-  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("send");
+  type TabId = (typeof TABS)[number]["id"];
+  const [tab, setTabState] = useState<TabId>(() => {
+    const h = window.location.hash.slice(1);
+    return (TABS.find((t) => t.id === h)?.id ?? "send") as TabId;
+  });
+  const setTab = (t: TabId) => {
+    setTabState(t);
+    history.replaceState(null, "", `#${t}`);
+  };
   return (
     <DAppKitProvider dAppKit={dAppKit}>
       <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:py-12">
         <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-emerald-400">Tatum × Walrus Memory · Sui Mainnet</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">Tantum Guard</h1>
+            <h1 className="mt-2 flex items-center gap-3 text-4xl font-semibold tracking-tight sm:text-5xl">
+              {/* eslint-disable-next-line @next/next/no-img-element -- static svg logo */}
+              <img src="/logo.svg" alt="" className="h-11 w-11 sm:h-12 sm:w-12" />
+              Tantum Guard
+            </h1>
             <p className="mt-3 max-w-2xl text-zinc-400">
               A Sui wallet companion that remembers. Every send and swap is checked against what you&apos;ve trusted and
               blocked before (kept in <span className="text-violet-300">Walrus Memory</span>) and simulated on Mainnet

@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   if (b.coinIn === b.coinOut) return Response.json({ error: "Pick two different tokens" }, { status: 400 });
   if (!b.amountIn || !/^\d+$/.test(b.amountIn) || BigInt(b.amountIn) <= BigInt(0))
     return Response.json({ error: "Enter an amount" }, { status: 400 });
-  if (!b.wallet || !isSuiAddress(b.wallet)) return Response.json({ error: "Connect a wallet first" }, { status: 400 });
+  const wallet = b.wallet && isSuiAddress(b.wallet) ? b.wallet : null; // no wallet = price preview only
   const slippage = Math.min(Math.max(Number(b.slippage ?? 0.01), 0.0005), 0.2);
 
   try {
@@ -25,11 +25,9 @@ export async function POST(req: Request) {
       coinOutType: b.coinOut,
       coinInAmount: BigInt(b.amountIn),
     });
-    const tx = await router.getTransactionForCompleteTradeRoute({
-      walletAddress: b.wallet,
-      completeRoute: route,
-      slippage,
-    });
+    const tx = wallet
+      ? await router.getTransactionForCompleteTradeRoute({ walletAddress: wallet, completeRoute: route, slippage })
+      : null;
     const protocols = [
       ...new Set(route.routes.flatMap((r) => r.paths.map((p) => p.protocolName as string))),
     ];
@@ -39,7 +37,7 @@ export async function POST(req: Request) {
       feePct: route.netTradeFeePercentage,
       protocols,
       slippage,
-      tx: await tx.toJSON(),
+      tx: tx ? await tx.toJSON() : null,
       route: json({ coinIn: route.coinIn, coinOut: route.coinOut }),
     });
   } catch (e) {
