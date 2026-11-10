@@ -25,6 +25,15 @@ export type AddressCheck = {
     sends: { amount: string; symbol: string; at: string }[];
   };
   errors?: { chain: string | null; memory: string | null };
+  activity?: {
+    digest: string;
+    timestampMs: number | null;
+    ok: boolean;
+    kind: "sent" | "received" | "swap" | "call";
+    counterparty: string | null;
+    changes: { coinType: string; amount: string }[];
+  }[];
+  coinMeta?: Record<string, { symbol: string; decimals: number; iconUrl: string | null }>;
 };
 
 export const isAddr = (s: string) => /^0x[0-9a-f]{64}$/.test(s.trim().toLowerCase());

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { GuardPanel, LEVEL, short, walruscan } from "./shared";
-import { AddressAvatar, checkName, useAddressCheck } from "./recipient";
+import { GuardPanel, LEVEL, fromRaw, short, suiscanTx, walruscan } from "./shared";
+import { AddressAvatar, checkName, useAddressCheck, type AddressCheck } from "./recipient";
+import { TokenLogo } from "./tokens";
 
 type VerdictMemory = { kind?: "address" | "token"; address: string; verdict: "trust" | "block"; reason: string; label?: string; at: string; blobId: string };
 type SendMemory = { to: string; amount: string; symbol: string; at: string; digest: string };
@@ -231,6 +232,8 @@ function CheckPanel({
               <Stat k="SUI balance" v={p.suiBalance.toLocaleString(undefined, { maximumFractionDigits: 3 })} />
             </dl>
           )}
+          {check.activity && check.activity.length > 0 && <Activity check={check} />}
+
           {check.memory.sends.length > 0 && (
             <p className="text-xs text-zinc-400">
               Last send from you: {check.memory.sends[0].amount} {check.memory.sends[0].symbol} on {check.memory.sends[0].at.slice(0, 10)}
@@ -295,6 +298,79 @@ function CheckPanel({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ago(ms: number | null) {
+  if (!ms) return "";
+  const s = Math.max(1, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+
+const KIND = {
+  sent: { icon: "↗", label: "Sent", cls: "bg-rose-500/15 text-rose-300" },
+  received: { icon: "↙", label: "Received", cls: "bg-emerald-500/15 text-emerald-300" },
+  swap: { icon: "⇄", label: "Swapped", cls: "bg-sky-500/15 text-sky-300" },
+  call: { icon: "◆", label: "App interaction", cls: "bg-violet-500/15 text-violet-300" },
+} as const;
+
+function Activity({ check }: { check: AddressCheck }) {
+  const meta = check.coinMeta ?? {};
+  const fmt = (c: { coinType: string; amount: string }) => {
+    const m = meta[c.coinType] ?? { symbol: c.coinType.split("::").pop()!, decimals: 9, iconUrl: null };
+    const neg = c.amount.startsWith("-");
+    return { m, neg, text: `${neg ? "−" : "+"}${fromRaw(c.amount.replace("-", ""), m.decimals, 4)} ${m.symbol}` };
+  };
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs uppercase tracking-wider text-zinc-500">Recent wallet activity · via Tatum</p>
+        <span className="text-[10px] text-zinc-600">last {check.activity!.length} txs</span>
+      </div>
+      <ul className="divide-y divide-white/5 overflow-hidden rounded-2xl bg-black/30">
+        {check.activity!.map((a) => {
+          const k = KIND[a.kind];
+          const outs = a.changes.filter((c) => c.amount.startsWith("-")).map(fmt);
+          const ins = a.changes.filter((c) => !c.amount.startsWith("-")).map(fmt);
+          const title =
+            a.kind === "swap"
+              ? `${outs.map((o) => o.m.symbol).join(", ")} → ${ins.map((i) => i.m.symbol).join(", ")}`
+              : a.kind === "sent" && a.counterparty
+                ? `to ${short(a.counterparty)}`
+                : a.kind === "received" && a.counterparty
+                  ? `from ${short(a.counterparty)}`
+                  : "Smart contract call";
+          const lead = (ins[0] ?? outs[0])?.m;
+          return (
+            <li key={a.digest}>
+              <a href={suiscanTx(a.digest)} target="_blank" className="flex items-center gap-3 px-3 py-2.5 transition hover:bg-white/[0.04]">
+                <span className="relative shrink-0">
+                  {lead ? <TokenLogo symbol={lead.symbol} iconUrl={lead.iconUrl} type={undefined} size={30} /> : <span className="block h-[30px] w-[30px]" />}
+                  <span className={`absolute -bottom-1 -right-1 grid h-4 w-4 place-items-center rounded-full text-[9px] ring-2 ring-[#0b0d12] ${k.cls}`}>{k.icon}</span>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm">
+                    {k.label} <span className="text-zinc-400">{title}</span>
+                    {!a.ok && <span className="ml-1 text-xs text-rose-400">failed</span>}
+                  </span>
+                  <span className="block text-xs text-zinc-500">{ago(a.timestampMs)}</span>
+                </span>
+                <span className="shrink-0 text-right font-mono text-xs">
+                  {[...ins, ...outs].slice(0, 2).map((x, i) => (
+                    <span key={i} className={`block ${x.neg ? "text-zinc-400" : "text-emerald-300"}`}>
+                      {x.text}
+                    </span>
+                  ))}
+                </span>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

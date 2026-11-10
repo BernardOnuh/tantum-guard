@@ -182,3 +182,117 @@ export async function getTokenProfile(coinType: string): Promise<TokenProfile> {
     publishedMs: Number.isFinite(ts) ? ts : null,
   };
 }
+
+// ---------- Wallet activity (EOA history) ----------
+
+const ACTIVITY_QUERY = `
+query Activity($a: SuiAddress!, $floor: UInt53!, $n: Int!) {
+  address(address: $a) {
+    transactions(last: $n, relation: AFFECTED, filter: { afterCheckpoint: $floor }) {
+      nodes {
+        digest
+        sender { address }
+        effects {
+          timestamp
+          status
+          balanceChanges(first: 20) { nodes { owner { address } coinType { repr } amount } }
+        }
+      }
+    }
+  }
+}`;
+
+export type ActivityItem = {
+  digest: string;
+  timestampMs: number | null;
+  ok: boolean;
+  kind: "sent" | "received" | "swap" | "call";
+  counterparty: string | null;
+  changes: { coinType: string; amount: string }[]; // this address only, gas folded out where obvious
+};
+
+const SUI_FULL = "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI";
+const GAS_DUST = BigInt(50_000_000); // ≤0.05 SUI outflow alongside other changes is treated as gas
+
+type ActivityData = {
+  address: null | {
+    transactions: {
+      nodes: {
+        digest: string;
+        sender: { address: string } | null;
+        effects: null | {
+          timestamp: string | null;
+          status: string;
+          balanceChanges: { nodes: { owner: { address: string } | null; coinType: { repr: string }; amount: string }[] };
+        };
+      }[];
+    };
+  };
+};
+
+export async function getActivity(address: string, n = 8): Promise<ActivityItem[]> {
+  let data: ActivityData;
+  try {
+    data = await gql<ActivityData>(ACTIVITY_QUERY, { a: address, floor: historyFloor, n });
+  } catch (e) {
+    const m = /lowest available checkpoint is (\d+)/.exec((e as { detail?: string }).detail ?? "");
+    if (!m) throw e;
+    historyFloor = Number(m[1]) + 1000;
+    data = await gql<ActivityData>(ACTIVITY_QUERY, { a: address, floor: historyFloor, n });
+  }
+  const nodes = data.address?.transactions.nodes ?? [];
+  return nodes
+    .map((t): ActivityItem => {
+      const all = t.effects?.balanceChanges.nodes ?? [];
+      let mine = all
+        .filter((b) => b.owner?.address === address)
+        .map((b) => ({ coinType: b.coinType.repr, amount: b.amount }));
+      const isSender = t.sender?.address === address;
+      // Fold gas: a tiny SUI outflow next to other movements is just the fee.
+      // Only fold when another outflow remains (e.g. sending a token); a SUI outflow next to only inflows is a buy.
+      const isDust = (c: { coinType: string; amount: string }) =>
+        c.coinType === SUI_FULL && BigInt(c.amount) < BigInt(0) && -BigInt(c.amount) <= GAS_DUST;
+      if (isSender && mine.some((c) => !isDust(c) && BigInt(c.amount) < BigInt(0))) mine = mine.filter((c) => !isDust(c));
+      const pos = mine.filter((c) => BigInt(c.amount) > BigInt(0));
+      const neg = mine.filter((c) => BigInt(c.amount) < BigInt(0));
+      let kind: ActivityItem["kind"] = "call";
+      let counterparty: string | null = null;
+      if (pos.length && neg.length) kind = "swap";
+      else if (neg.length && isSender) {
+        const recv = all.find((b) => b.owner?.address && b.owner.address !== address && BigInt(b.amount) > BigInt(0));
+        // Only call it a send if a wallet-like owner received funds; otherwise it's a contract interaction.
+        kind = recv ? "sent" : "call";
+        counterparty = recv?.owner?.address ?? null;
+      } else if (pos.length && !isSender) {
+        kind = "received";
+        counterparty = t.sender?.address ?? null;
+      } else if (pos.length) kind = "call";
+      const ts = Date.parse(t.effects?.timestamp ?? "");
+      return {
+        digest: t.digest,
+        timestampMs: Number.isFinite(ts) ? ts : null,
+        ok: t.effects?.status === "SUCCESS",
+        kind,
+        counterparty,
+        changes: mine,
+      };
+    })
+    .sort((a, b) => (b.timestampMs ?? 0) - (a.timestampMs ?? 0));
+}
+
+/** Symbol/decimals/icon for up to ~10 coin types in one Tatum request. */
+export async function getCoinMetas(types: string[]) {
+  const uniq = [...new Set(types)].slice(0, 10);
+  if (!uniq.length) return {} as Record<string, { symbol: string; decimals: number; iconUrl: string | null }>;
+  const q = `query(${uniq.map((_, i) => `$t${i}: String!`).join(", ")}) {${uniq
+    .map((_, i) => ` m${i}: coinMetadata(coinType: $t${i}) { symbol decimals iconUrl }`)
+    .join("")} }`;
+  const vars = Object.fromEntries(uniq.map((t, i) => [`t${i}`, t]));
+  const d = await gql<Record<string, { symbol: string; decimals: number; iconUrl: string | null } | null>>(q, vars);
+  const out: Record<string, { symbol: string; decimals: number; iconUrl: string | null }> = {};
+  uniq.forEach((t, i) => {
+    const m = d[`m${i}`];
+    if (m) out[t] = { symbol: m.symbol, decimals: m.decimals, iconUrl: m.iconUrl && m.iconUrl.length < 3000 ? m.iconUrl : null };
+  });
+  return out;
+}

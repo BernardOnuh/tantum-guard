@@ -1,4 +1,4 @@
-import { getAddressProfile, isSuiAddress } from "@/lib/tatum";
+import { getActivity, getAddressProfile, getCoinMetas, isSuiAddress } from "@/lib/tatum";
 import { recallAll } from "@/lib/memory";
 import { assess, findLookalike } from "@/lib/risk";
 
@@ -8,12 +8,15 @@ export async function POST(req: Request) {
   if (!isSuiAddress(address))
     return Response.json({ error: "Enter a full Sui address (0x + 64 hex characters)." }, { status: 400 });
 
-  const [profileRes, memRes] = await Promise.allSettled([
+  const [profileRes, memRes, actRes] = await Promise.allSettled([
     getAddressProfile(address),
     recallAll(`Has the user trusted, blocked or sent funds to Sui address ${address}?`),
+    getActivity(address, 8),
   ]);
 
   const profile = profileRes.status === "fulfilled" ? profileRes.value : null;
+  const activity = actRes.status === "fulfilled" ? actRes.value : [];
+  const coinMeta = await getCoinMetas(activity.flatMap((a) => a.changes.map((c) => c.coinType))).catch(() => ({}));
   const mem = memRes.status === "fulfilled" ? memRes.value : { latest: [], history: [], sends: [] };
   const addrVerdicts = mem.latest.filter((v) => v.kind === "address");
   const pastSends = mem.sends.filter((s) => s.to === address);
@@ -26,6 +29,8 @@ export async function POST(req: Request) {
     level,
     signals,
     profile,
+    activity,
+    coinMeta,
     memory: { own: own ?? null, lookalike: lookalike ?? null, sends: pastSends.slice(0, 5) },
     errors: {
       chain: profileRes.status === "rejected" ? String(profileRes.reason?.message ?? profileRes.reason) : null,

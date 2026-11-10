@@ -14,6 +14,63 @@ const TABS = [
   { id: "check", label: "Check address" },
 ] as const;
 
+function Trailer() {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem("tg-trailer-hidden") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = (v: boolean) => {
+    setHidden(v);
+    try {
+      localStorage.setItem("tg-trailer-hidden", v ? "1" : "0");
+    } catch {}
+  };
+  if (hidden)
+    return (
+      <button onClick={() => toggle(false)} className="mb-6 flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-zinc-300 hover:bg-white/10">
+        ▶ Watch the 30-second demo
+      </button>
+    );
+  return (
+    <section className="mb-8 grid items-center gap-6 rounded-3xl border border-white/10 bg-white/[0.03] p-4 sm:p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+      <video
+        src="/trailer.mp4"
+        poster="/trailer-poster.jpg"
+        controls
+        playsInline
+        preload="metadata"
+        className="aspect-video w-full rounded-2xl bg-black ring-1 ring-white/10"
+      />
+      <div className="space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-xl font-semibold">How Tantum Guard protects you</h2>
+          <button onClick={() => toggle(true)} className="shrink-0 text-xs text-zinc-500 hover:text-zinc-300">
+            Hide
+          </button>
+        </div>
+        <ol className="space-y-3 text-sm">
+          {[
+            ["1", "Paste or pick a recipient", "It's scanned instantly. Tatum reads its real wallet activity on Sui Mainnet."],
+            ["2", "Your memory weighs in", "Addresses and tokens you trusted or blocked live in Walrus Memory, so lookalikes get stopped."],
+            ["3", "Simulate, then sign", "Every send and swap is simulated through Tatum so you see exactly what moves before your wallet signs."],
+          ].map(([n, t, d]) => (
+            <li key={n} className="flex gap-3">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-emerald-500/15 font-mono text-xs text-emerald-300">{n}</span>
+              <span>
+                <span className="block font-medium">{t}</span>
+                <span className="block text-zinc-400">{d}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   type TabId = (typeof TABS)[number]["id"];
   const [tab, setTabState] = useState<TabId>(() => {
@@ -44,6 +101,8 @@ export default function App() {
           </div>
           <ConnectButton />
         </header>
+
+        <Trailer />
 
         <nav className="mb-6 inline-flex rounded-xl border border-white/10 bg-white/[0.03] p-1">
           {TABS.map((t) => (
