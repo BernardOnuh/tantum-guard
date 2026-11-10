@@ -20,6 +20,7 @@ export default function App() {
     const h = window.location.hash.slice(1);
     return (TABS.find((t) => t.id === h)?.id ?? "send") as TabId;
   });
+  const [prefill, setPrefill] = useState({ to: "", n: 0 });
   const setTab = (t: TabId) => {
     setTabState(t);
     history.replaceState(null, "", `#${t}`);
@@ -56,7 +57,20 @@ export default function App() {
           ))}
         </nav>
 
-        <Guard panel={tab === "send" ? <Send /> : tab === "swap" ? <Swap /> : undefined} />
+        <Guard
+          panel={
+            tab === "send" ? (
+              <Send key={`send-${prefill.n}`} initialTo={prefill.to} />
+            ) : tab === "swap" ? (
+              <Swap key={`swap-${prefill.n}`} initialTo={prefill.to} />
+            ) : undefined
+          }
+          onAction={(action, address) => {
+            setPrefill((p) => ({ to: address, n: p.n + 1 }));
+            setTab(action);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        />
       </div>
     </DAppKitProvider>
   );

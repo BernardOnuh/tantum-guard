@@ -6,10 +6,11 @@ import { useCurrentAccount, useCurrentClient, useDAppKit } from "@mysten/dapp-ki
 import { ConnectButton } from "@mysten/dapp-kit-react/ui";
 import { Transaction } from "@mysten/sui/transactions";
 import {
-  GuardPanel, SUI_TYPE, SimulationPanel, fromRaw, suiscanTx, toRaw, useTokens, walruscan,
+  GuardPanel, SUI_TYPE, short, SimulationPanel, fromRaw, suiscanTx, toRaw, useTokens, walruscan,
   type BalanceChange, type Level, type Signal,
 } from "./shared";
 import { TokenPicker, TokenPill, useTokenList, usd, type PickedToken } from "./tokens";
+import { RecipientField, useAddressCheck, type AddressCheck } from "./recipient";
 
 type Quote = { amountOut: string; feePct: number; protocols: string[]; slippage: number; tx: string | null; spotPrice: number };
 
@@ -23,11 +24,15 @@ type Review = {
   changes: BalanceChange[];
   simError: string | null;
   tx: Transaction;
+  recipient: string | null;
+  recipientCheck: AddressCheck | null;
 };
+
+const RANK: Record<Level, number> = { safe: 0, low: 1, medium: 2, high: 3, critical: 4 };
 
 const USDC = "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
 
-export default function Swap() {
+export default function Swap({ initialTo = "" }: { initialTo?: string }) {
   const account = useCurrentAccount();
   const client = useCurrentClient();
   const dAppKit = useDAppKit();
@@ -38,6 +43,10 @@ export default function Swap() {
   const [coinOut, setCoinOut] = useState<PickedToken | null>(null);
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(0.01);
+  const [sendTo, setSendTo] = useState(!!initialTo);
+  const [to, setTo] = useState(initialTo);
+  const recip = useAddressCheck(sendTo ? to : "");
+  const recipient = sendTo && recip.valid ? recip.address : null;
   const [picker, setPicker] = useState<null | "in" | "out">(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -82,7 +91,7 @@ export default function Swap() {
         const q = await fetch("/api/swap/quote", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ coinIn: coinIn.type, coinOut: coinOut.type, amountIn: raw.toString(), slippage, wallet: account?.address }),
+          body: JSON.stringify({ coinIn: coinIn.type, coinOut: coinOut.type, amountIn: raw.toString(), slippage, wallet: account?.address, recipient }),
         }).then((r) => r.json());
         if (id !== seq.current) return;
         if (q.error) throw new Error(q.error);
@@ -99,7 +108,7 @@ export default function Swap() {
     }, 550);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- raw is derived from amount/coinIn
-  }, [amount, coinIn?.type, coinOut?.type, slippage, account?.address]);
+  }, [amount, coinIn?.type, coinOut?.type, slippage, account?.address, recipient]);
 
   const outAmount = quote && coinOut ? Number(quote.amountOut) / 10 ** coinOut.decimals : null;
   const inUsd = raw && coinIn?.price ? (Number(raw) / 10 ** decIn) * coinIn.price : null;
@@ -116,20 +125,28 @@ export default function Swap() {
 
   async function doReview() {
     if (!account || !coinIn || !coinOut || !raw) return;
+    if (sendTo && !recipient) return setError("Enter the recipient's address, or turn off “Send to another wallet”.");
+    if (recipient && recipient === account.address.toLowerCase()) return setError("That's your own address. Turn off “Send to another wallet”.");
     setError(null);
     setDone(null);
     setSaved(null);
     setOverride(false);
     setBusy("review");
     try {
-      const [check, q] = await Promise.all([
+      const [check, q, rCheck] = await Promise.all([
         fetch("/api/token-check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ coinType: coinOut.type }) }).then((r) => r.json()),
         fetch("/api/swap/quote", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ coinIn: coinIn.type, coinOut: coinOut.type, amountIn: raw.toString(), slippage, wallet: account.address }),
+          body: JSON.stringify({ coinIn: coinIn.type, coinOut: coinOut.type, amountIn: raw.toString(), slippage, wallet: account.address, recipient }),
         }).then((r) => r.json()),
+        !recipient
+          ? Promise.resolve(null)
+          : recip.check
+            ? Promise.resolve(recip.check)
+            : fetch("/api/check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: recipient }) }).then((r) => r.json()),
       ]);
+      if (rCheck?.error) throw new Error(rCheck.error);
       if (check.error) throw new Error(check.error);
       if (q.error) throw new Error(q.error);
 
@@ -152,7 +169,19 @@ export default function Swap() {
       }
 
       const outMeta = { ...coinOut, symbol: check.token?.symbol ?? coinOut.symbol, decimals: check.token?.decimals ?? coinOut.decimals };
-      setReview({ coinIn: { ...coinIn, decimals: decIn }, coinOut: outMeta, amountRaw: raw, quote: q, level: check.level, signals: check.signals, changes, simError, tx });
+      setReview({
+        coinIn: { ...coinIn, decimals: decIn },
+        coinOut: outMeta,
+        amountRaw: raw,
+        quote: q,
+        level: check.level,
+        signals: check.signals,
+        changes,
+        simError,
+        tx,
+        recipient,
+        recipientCheck: rCheck,
+      });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -167,10 +196,19 @@ export default function Swap() {
     try {
       const res = await dAppKit.signAndExecuteTransaction({ transaction: review.tx });
       if (res.FailedTransaction) throw new Error(`Swap failed: ${res.FailedTransaction.status.error?.message ?? "unknown"}`);
+      const outTxt = fromRaw(review.quote.amountOut, review.coinOut.decimals, 6);
       setDone({
         digest: res.Transaction.digest,
-        text: `${fromRaw(review.amountRaw, review.coinIn.decimals, 6)} ${review.coinIn.symbol} → ${fromRaw(review.quote.amountOut, review.coinOut.decimals, 6)} ${review.coinOut.symbol}`,
+        text: `${fromRaw(review.amountRaw, review.coinIn.decimals, 6)} ${review.coinIn.symbol} → ${outTxt} ${review.coinOut.symbol}${review.recipient ? ` sent to ${short(review.recipient)}` : ""}`,
       });
+      if (review.recipient)
+        fetch("/api/sent", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ to: review.recipient, amount: outTxt.replace(/,/g, ""), symbol: review.coinOut.symbol, digest: res.Transaction.digest }),
+        })
+          .then(() => window.dispatchEvent(new Event("memory-updated")))
+          .catch(() => {});
       setReview(null);
       setAmount("");
       reload();
@@ -201,8 +239,13 @@ export default function Swap() {
     }
   }
 
-  const blocked = review?.level === "critical" && !override;
-  const canReview = !!account && !!quote && !insufficient && !quoting && !busy;
+  const overall: Level | null = review
+    ? RANK[review.recipientCheck?.level ?? "safe"] > RANK[review.level]
+      ? review.recipientCheck!.level
+      : review.level
+    : null;
+  const blocked = overall === "critical" && !override;
+  const canReview = !!account && !!quote && !insufficient && !quoting && !busy && (!sendTo || !!recipient);
 
   return (
     <div className="mx-auto w-full max-w-[480px] space-y-3">
@@ -288,6 +331,30 @@ export default function Swap() {
           </div>
         </div>
 
+        {/* Deliver to another wallet */}
+        <div className="mt-2 rounded-2xl border border-white/5 bg-black/20 px-4 py-3">
+          <label className="flex cursor-pointer items-center justify-between gap-3 text-sm">
+            <span>
+              Send to another wallet
+              <span className="block text-xs text-zinc-500">Swap from your wallet and deliver the output to someone else.</span>
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={sendTo}
+              onClick={() => setSendTo((v) => !v)}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition ${sendTo ? "bg-emerald-500" : "bg-white/15"}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${sendTo ? "left-[22px]" : "left-0.5"}`} />
+            </button>
+          </label>
+        </div>
+        {sendTo && (
+          <div className="mt-2">
+            <RecipientField value={to} onChange={setTo} label="Recipient" state={recip} />
+          </div>
+        )}
+
         {/* Details */}
         {quote && coinIn && coinOut && (
           <div className="space-y-1 px-3 pb-1 pt-3 text-xs text-zinc-400">
@@ -315,8 +382,12 @@ export default function Swap() {
                     ? "Enter an amount"
                     : quoting
                       ? "Finding best price…"
-                      : quote
-                        ? "Review swap"
+                      : sendTo && !recipient
+                        ? "Enter a recipient"
+                        : quote
+                        ? recipient
+                          ? "Review swap & send"
+                          : "Review swap"
                         : "No route"}
             </button>
           )}
@@ -333,6 +404,11 @@ export default function Swap() {
               Cancel
             </button>
           </div>
+          {review.recipient && review.recipientCheck && (
+            <div className="border-b border-white/10 pb-4">
+              <GuardPanel level={review.recipientCheck.level} signals={review.recipientCheck.signals} title={`Recipient ${short(review.recipient)}`} />
+            </div>
+          )}
           <GuardPanel level={review.level} signals={review.signals} title={`Token you're buying: ${review.coinOut.symbol}`} />
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <button onClick={() => verdict("trust")} disabled={!!busy} className="rounded-full border border-emerald-500/40 px-3 py-1 text-emerald-300 hover:bg-emerald-500/10">
@@ -348,17 +424,19 @@ export default function Swap() {
             )}
           </div>
           <div className="border-t border-white/10 pt-4">
-            <SimulationPanel changes={review.changes} me={account.address} tokens={tokens} />
+            <SimulationPanel changes={review.changes} me={account.address} tokens={tokens} recipient={review.recipient} />
             {review.simError && <p className="mt-2 text-sm text-rose-300">Simulation: {review.simError}</p>}
           </div>
-          {review.level === "critical" && (
+          {overall === "critical" && (
             <label className="flex items-start gap-2 text-sm text-rose-200">
               <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} className="mt-1" />
               I understand the risk and want to swap anyway.
             </label>
           )}
-          <button onClick={doSwap} disabled={!!busy || blocked || !!review.simError} className={`${review.level === "critical" ? "btn-danger" : "btn-primary"} w-full py-3.5 text-base`}>
-            {busy === "swap" ? "Confirm in your wallet…" : `Swap ${review.coinIn.symbol} → ${review.coinOut.symbol}`}
+          <button onClick={doSwap} disabled={!!busy || blocked || !!review.simError} className={`${overall === "critical" ? "btn-danger" : "btn-primary"} w-full py-3.5 text-base`}>
+            {busy === "swap"
+              ? "Confirm in your wallet…"
+              : `Swap ${review.coinIn.symbol} → ${review.coinOut.symbol}${review.recipient ? ` & send to ${short(review.recipient)}` : ""}`}
           </button>
         </div>
       )}

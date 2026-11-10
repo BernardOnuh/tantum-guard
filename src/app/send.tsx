@@ -6,57 +6,34 @@ import { useCurrentAccount, useCurrentClient, useDAppKit } from "@mysten/dapp-ki
 import { ConnectButton } from "@mysten/dapp-kit-react/ui";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import {
-  GuardPanel, LEVEL, SUI_TYPE, SimulationPanel, fromRaw, short, suiscanTx, toRaw, useTokens, walruscan,
-  type BalanceChange, type Level, type Signal,
+  GuardPanel, SUI_TYPE, SimulationPanel, fromRaw, short, suiscanTx, toRaw, useTokens, walruscan,
+  type BalanceChange,
 } from "./shared";
 import { TokenPicker, TokenPill, useTokenList, usd, type PickedToken } from "./tokens";
-
-type Check = {
-  address: string;
-  level: Level;
-  signals: Signal[];
-  profile: { suinsName: string | null; sentCount: number; sentMore: boolean } | null;
-  memory: { own: { verdict: string; label?: string } | null; lookalike: { label?: string; address: string } | null; sends: unknown[] };
-};
+import { AddressAvatar, RecipientField, useAddressCheck, type AddressCheck } from "./recipient";
 
 type Review = {
   to: string;
   amountRaw: bigint;
   token: PickedToken;
-  check: Check;
+  check: AddressCheck;
   changes: BalanceChange[];
   simError: string | null;
   gasMocked: boolean;
   tx: Transaction;
 };
 
-/** Deterministic gradient avatar so lookalike addresses look visibly different. */
-export function AddressAvatar({ address, size = 36 }: { address: string; size?: number }) {
-  const h = address.replace(/^0x/, "");
-  const c1 = `#${h.slice(0, 6)}`;
-  const c2 = `#${h.slice(-6)}`;
-  const c3 = `#${h.slice(28, 34)}`;
-  return (
-    <span
-      className="shrink-0 rounded-full ring-1 ring-white/15"
-      style={{ width: size, height: size, background: `conic-gradient(from 45deg, ${c1}, ${c3}, ${c2}, ${c1})` }}
-    />
-  );
-}
-
-export default function Send() {
+export default function Send({ initialTo = "" }: { initialTo?: string }) {
   const account = useCurrentAccount();
   const client = useCurrentClient();
   const dAppKit = useDAppKit();
   const { tokens, reload } = useTokens();
   const { list, byType } = useTokenList();
 
-  const [to, setTo] = useState("");
+  const [to, setTo] = useState(initialTo);
   const [token, setToken] = useState<PickedToken | null>(null);
   const [amount, setAmount] = useState("");
   const [picker, setPicker] = useState(false);
-  const [live, setLive] = useState<Check | null>(null);
-  const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState<null | "review" | "send" | "trust">(null);
   const [error, setError] = useState<string | null>(null);
   const [review, setReview] = useState<Review | null>(null);
@@ -71,31 +48,11 @@ export default function Send() {
     setToken({ type: t.type, symbol: t.symbol, decimals: t.decimals, iconUrl: l?.iconUrl ?? null, price: l?.price ?? null });
   }, [tokens, byType, token]);
 
-  const dest = to.trim().toLowerCase();
-  const validAddr = /^0x[0-9a-f]{64}$/.test(dest);
-
-  // Live recipient check as soon as a full address is entered.
-  useEffect(() => {
-    setReview(null);
-    if (!validAddr) {
-      setLive(null);
-      return;
-    }
-    let cancelled = false;
-    setChecking(true);
-    const t = setTimeout(async () => {
-      try {
-        const r = await fetch("/api/check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: dest }) }).then((r) => r.json());
-        if (!cancelled && !r.error) setLive(r);
-      } finally {
-        if (!cancelled) setChecking(false);
-      }
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [dest, validAddr]);
+  const recip = useAddressCheck(to);
+  const dest = recip.address;
+  const validAddr = recip.valid;
+  const live = recip.check;
+  useEffect(() => setReview(null), [dest]);
 
   const wTok = tokens?.find((t) => t.type === token?.type);
   const raw = token ? toRaw(amount, token.decimals) : null;
@@ -194,7 +151,6 @@ export default function Send() {
   }
 
   const blocked = review?.check.level === "critical" && !override;
-  const name = live?.memory.own?.label ?? live?.profile?.suinsName ?? null;
 
   return (
     <div className="mx-auto w-full max-w-[480px] space-y-3">
@@ -235,37 +191,8 @@ export default function Send() {
         </div>
 
         {/* Recipient */}
-        <div className="mt-2 rounded-2xl border border-white/5 bg-black/30 p-4">
-          <div className="mb-2 text-xs text-zinc-400">To</div>
-          <div className="flex items-center gap-3">
-            {validAddr ? <AddressAvatar address={dest} /> : <span className="h-9 w-9 shrink-0 rounded-full border border-dashed border-white/15" />}
-            <input
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="Paste a Sui address (0x…)"
-              spellCheck={false}
-              className="min-w-0 flex-1 bg-transparent font-mono text-sm outline-none placeholder:text-zinc-600"
-            />
-            {to && (
-              <button onClick={() => setTo("")} className="text-zinc-500 hover:text-white" aria-label="Clear">
-                ✕
-              </button>
-            )}
-          </div>
-          {to && !validAddr && <p className="mt-2 text-xs text-amber-300">A Sui address is 0x followed by 64 hex characters.</p>}
-          {validAddr && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3 text-xs">
-              {checking && !live ? (
-                <span className="animate-pulse text-zinc-500">Checking memory + chain…</span>
-              ) : live ? (
-                <>
-                  <span className={`rounded-full px-2 py-0.5 font-semibold ring-1 ${LEVEL[live.level].cls}`}>{LEVEL[live.level].label}</span>
-                  {name && <span className="text-zinc-200">{name}</span>}
-                  <span className="text-zinc-500">{live.signals[0]?.text}</span>
-                </>
-              ) : null}
-            </div>
-          )}
+        <div className="mt-2">
+          <RecipientField value={to} onChange={setTo} state={recip} />
         </div>
 
         <div className="p-1 pt-3">
@@ -362,7 +289,6 @@ export default function Send() {
         onClose={() => setPicker(false)}
         wallet={tokens}
         list={list}
-        walletOnly
         title="Send which token?"
         onPick={(t) => (setToken(t), setReview(null))}
       />

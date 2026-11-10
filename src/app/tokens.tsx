@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { normalizeStructTag } from "@mysten/sui/utils";
-import { SUI_TYPE, fromRaw, type Token } from "./shared";
+import { POPULAR, SUI_TYPE, fromRaw, type Token } from "./shared";
 
 export type ListedToken = {
   type: string;
@@ -144,13 +144,22 @@ export function TokenPicker({
   const match = (t: { symbol: string; name?: string; type: string }) =>
     !query || t.symbol.toLowerCase().includes(query) || (t.name ?? "").toLowerCase().includes(query) || t.type.toLowerCase() === query;
 
+  // Popular presets always show (with your balance, even if 0), before the token list loads too.
+  const popularBase: ListedToken[] = list?.length
+    ? list.slice(0, 6)
+    : POPULAR.map((p) => ({ type: p.type, symbol: p.symbol, name: p.symbol, decimals: p.decimals, iconUrl: null, price: null, verified: true }));
+  const balOf = (type: string) => wallet?.find((w) => w.type === type)?.balance ?? BigInt(0);
+  const popular = walletOnly ? [] : popularBase.filter((t) => t.type !== exclude && match(t));
+  const popularTypes = new Set(popularBase.map((t) => t.type));
+
   const mine = (wallet ?? [])
-    .filter((t) => t.type !== exclude)
+    .filter((t) => t.type !== exclude && (walletOnly || !popularTypes.has(t.type)))
     .map((t) => ({ ...t, name: byType.get(t.type)?.name ?? t.symbol, iconUrl: byType.get(t.type)?.iconUrl ?? null, price: byType.get(t.type)?.price ?? null }))
     .filter(match);
   const mineTypes = new Set(mine.map((t) => t.type));
-  const others = walletOnly ? [] : (list ?? []).filter((t) => t.type !== exclude && !mineTypes.has(t.type) && match(t)).slice(0, 80);
-  const chips = walletOnly ? [] : (list ?? []).slice(0, 6).filter((t) => t.type !== exclude);
+  const others = walletOnly
+    ? []
+    : (list ?? []).filter((t) => t.type !== exclude && !mineTypes.has(t.type) && !popularTypes.has(t.type) && match(t)).slice(0, 80);
 
   if (!open) return null;
 
@@ -187,20 +196,6 @@ export function TokenPicker({
               className="input pl-9"
             />
           </div>
-          {chips.length > 0 && !query && (
-            <div className="flex flex-wrap gap-2">
-              {chips.map((t) => (
-                <button
-                  key={t.type}
-                  onClick={() => pick(t)}
-                  className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] py-1 pl-1 pr-2.5 text-sm hover:bg-white/10"
-                >
-                  <TokenLogo type={t.type} iconUrl={t.iconUrl} symbol={t.symbol} size={20} />
-                  {t.symbol}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
@@ -212,7 +207,26 @@ export function TokenPicker({
             />
           )}
 
-          {mine.length > 0 && <SectionLabel>Your tokens</SectionLabel>}
+          {popular.length > 0 && <SectionLabel>Popular</SectionLabel>}
+          {popular.map((t) => {
+            const bal = balOf(t.type);
+            const dec = wallet?.find((w) => w.type === t.type)?.decimals ?? t.decimals;
+            return (
+              <Row
+                key={t.type}
+                t={t}
+                right={
+                  <div className="text-right">
+                    <div className={`font-mono text-sm ${bal === BigInt(0) ? "text-zinc-600" : ""}`}>{fromRaw(bal, dec)}</div>
+                    {t.price != null && <div className="text-xs text-zinc-500">{usd(t.price)}</div>}
+                  </div>
+                }
+                onClick={() => pick({ type: t.type, symbol: t.symbol, decimals: dec, iconUrl: t.iconUrl, price: t.price })}
+              />
+            );
+          })}
+
+          {mine.length > 0 && <SectionLabel>{walletOnly ? "Your tokens" : "Other tokens in your wallet"}</SectionLabel>}
           {mine.map((t) => (
             <Row
               key={t.type}
@@ -238,7 +252,7 @@ export function TokenPicker({
           ))}
 
           {list === null && !walletOnly && <p className="p-6 text-center text-sm text-zinc-500">Loading tokens…</p>}
-          {list !== null && mine.length === 0 && others.length === 0 && !pasted && (
+          {list !== null && popular.length === 0 && mine.length === 0 && others.length === 0 && !pasted && (
             <p className="p-6 text-center text-sm text-zinc-500">
               {walletOnly ? "No matching tokens in your wallet." : "No match. Paste the full coin type (0x…::module::SYMBOL)."}
             </p>

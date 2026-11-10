@@ -125,13 +125,16 @@ export function SimulationPanel({
   me,
   tokens,
   gasMocked,
+  recipient,
 }: {
   changes: BalanceChange[];
   me: string;
   tokens: Token[] | null;
   gasMocked?: boolean;
+  recipient?: string | null;
 }) {
   const mine = changes.filter((c) => c.address.toLowerCase() === me.toLowerCase());
+  const theirs = recipient ? changes.filter((c) => c.address.toLowerCase() === recipient.toLowerCase()) : [];
   return (
     <div className="space-y-1.5">
       <p className="text-xs uppercase tracking-wider text-zinc-500">Simulated by Tatum · what happens to your wallet</p>
@@ -149,6 +152,21 @@ export function SimulationPanel({
           </div>
         );
       })}
+      {recipient && (
+        <>
+          <p className="pt-2 text-xs uppercase tracking-wider text-zinc-500">Recipient {short(recipient)} receives</p>
+          {theirs.length === 0 && <p className="text-sm text-rose-300">The simulation shows nothing arriving at the recipient.</p>}
+          {theirs.map((c, i) => {
+            const m = decimalsFor(c.coinType, tokens);
+            return (
+              <div key={i} className="flex items-center justify-between rounded-lg bg-black/30 px-3 py-2 font-mono text-sm">
+                <span className="text-zinc-400">{m.symbol}</span>
+                <span className="text-emerald-300">+{fromRaw(c.amount, m.decimals, 6)}</span>
+              </div>
+            );
+          })}
+        </>
+      )}
       {gasMocked && <p className="text-xs text-zinc-500">Gas was estimated with a mock coin.</p>}
     </div>
   );
